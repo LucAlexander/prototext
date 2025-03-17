@@ -16,6 +16,7 @@ typedef enum TOKEN {
 	EXEC_TOKEN='.',
 	WORD_TOKEN=':',
 	SUBWORD_TOKEN=',',
+	REFERENCE_TOKEN=';',
 	IDENTIFIER_TOKEN=1000,
 	ADD_TOKEN,
 	SUB_TOKEN,
@@ -71,20 +72,80 @@ typedef struct string {
 
 typedef struct token {
 	string str;
-	TOKEN tag;
 	uint64_t val;
+	TOKEN tag;
 	uint8_t s;
 } token;
+
+typedef enum MODE {
+	MODE_U8,
+	MODE_I8,
+	MODE_U16,
+	MODE_I16,
+	MODE_U32,
+	MODE_I32,
+	MODE_U64,
+	MODE_I64
+} MODE;
+
+typedef struct instruction {
+	union {
+		struct {
+			uint64_t bytes;
+			MODE mode;
+		} push;
+		struct {
+			uint64_t pointer;
+		} exec;
+		struct {
+			void (*function)();
+		} builtin;
+	} data;
+	enum {
+		PUSH_INST,
+		EXEC_INST,
+		OPCODE_INST
+	} tag;
+} instruction;
+
+typedef struct pointer_thunk pointer_thunk;
+typedef struct pointer_thunk {
+	pointer_thunk* next;
+	union {
+		uint64_t resolved_location;
+		uint64_t* waiting_pointer;
+	} data;
+	enum {
+		THUNK_RESOLVED,
+		THUNK_WAITING
+	} tag;
+} pointer_thunk;
+
+MAP_DEF(uint64_t)
+MAP_DEF(pointer_thunk)
+
+void pointer_thunk_request(pointer_thunk_map* map, char* const name, uint64_t* pointer);
+void pointer_thunk_fulfill(pointer_thunk_map* map, char* const name, uint64_t pointer);
+
+typedef struct parser {
+	uint64_t instruction_count;
+	instruction* instructions;
+	uint64_t_map labels;
+	pointer_thunk_map thunks;
+	char* super_label;
+	uint64_t super_label_size;
+} parser;
 
 MAP_DEF(TOKEN)
 
 typedef struct assembler {
+	parser parse;
 	string input;
 	pool* mem;
 	token* tokens;
+	uint64_t token_count;
 	TOKEN_map opmap;
 	char* err;
-	uint64_t token_count;
 } assembler;
 
 

@@ -5,6 +5,8 @@
 #include "assembler.h"
 
 MAP_IMPL(TOKEN)
+MAP_IMPL(uint64_t)
+MAP_IMPL(pointer_thunk)
 
 #define assert_local(c, ...)\
 	if (!(c)){\
@@ -160,6 +162,7 @@ lex_cstr(assembler* const assm){
 		case EXEC_TOKEN:
 		case WORD_TOKEN:
 		case SUBWORD_TOKEN:
+		case REFERENCE_TOKEN:
 			t->tag = c;
 			assm->input.i += 1;
 			pool_request(assm->mem, sizeof(token));
@@ -261,6 +264,7 @@ lex_cstr(assembler* const assm){
 
 void
 show_tokens(assembler* const assm){
+	printf("TOKENS:\n");
 	for (uint64_t i = 0;i<assm->token_count;++i){
 		token* t = &assm->tokens[i];
 		printf("[ ");
@@ -273,6 +277,9 @@ show_tokens(assembler* const assm){
 			break;
 		case SUBWORD_TOKEN:
 			printf("SUB | ");
+			break;
+		case REFERENCE_TOKEN:
+			printf("REF | ");
 			break;
 		case IDENTIFIER_TOKEN:
 			printf("IDEN | ");
@@ -338,7 +345,7 @@ show_tokens(assembler* const assm){
 			printf("MODE I8 | ");
 			break;
 		case U16_TOKEN:
-			printf("MODE U16| ");
+			printf("MODE U16 | ");
 			break;
 		case I16_TOKEN:
 			printf("MODE I16 | ");
@@ -406,12 +413,224 @@ show_tokens(assembler* const assm){
 	printf("\n");
 }
 
+void pointer_thunk_request(pointer_thunk_map* map, char* const name, uint64_t* pointer){
+	pointer_thunk* res = pointer_thunk_map_access(map, name);
+	if (res == NULL){
+		res = pool_request(map->mem, sizeof(pointer_thunk));
+		res->tag = THUNK_WAITING;
+		res->next = NULL;
+		res->data.waiting_pointer = pointer;
+		pointer_thunk_map_insert(map, name, res);
+		return;
+	}
+	if (res->tag == THUNK_RESOLVED){
+		*pointer = res->data.resolved_location;
+		return;
+	}
+	pointer_thunk* temp = res->next;
+	res->next = pool_request(map->mem, sizeof(pointer_thunk));
+	res->next->next = temp;
+	res->next->tag = THUNK_WAITING;
+	res->next->data.waiting_pointer = pointer;
+	return;
+}
+
+
+
+void pointer_thunk_fulfill(pointer_thunk_map* map, char* const name, uint64_t pointer){
+	pointer_thunk* res = pointer_thunk_map_access(map, name);
+	if (res == NULL){
+		res = pool_request(map->mem, sizeof(pointer_thunk));
+		res->tag = THUNK_RESOLVED;
+		res->next = NULL;
+		res->data.resolved_location = pointer;
+		pointer_thunk_map_insert(map, name, res);
+		return;
+	}
+	if (res->tag == THUNK_RESOLVED){
+		res->data.resolved_location = pointer;
+		return;
+	}
+	while (res != NULL){
+		*res->data.waiting_pointer = pointer;
+		res = res->next;
+	}
+	res->tag = THUNK_RESOLVED;
+}
+
+uint8_t
+parse_tokens(assembler* const assm){
+	assm->parse.instructions = pool_request(assm->mem, sizeof(instruction)*2*assm->token_count);
+	uint8_t mode = MODE_U8;
+	uint64_t i = 0;
+	while (i < assm->token_count){
+		instruction* inst = &assm->parse.instructions[assm->parse.instruction_count];
+		token t = assm->tokens[i];
+		i += 1;
+		switch (t.tag){
+		case EXEC_TOKEN:
+		case WORD_TOKEN:
+		case SUBWORD_TOKEN:
+			assert_local(0, "Unexpected . or :\n");
+		case REFERENCE_TOKEN:
+			token next_iden = assm->tokens[i];
+			assert_local(next_iden.tag == IDENTIFIER_TOKEN);
+			i += 1;
+			uint64_t size = next_iden.str.size;
+			char* subname = pool_request(assm->mem, assm->parse.super_label_size+size);
+			strncpy(subname, assm->parse.super_label, assm->parse.super_label_size);
+			strncat(subname, next_iden.str.text, size);
+			subname[assm->parse.super_label_size+size] = '\0';
+			inst->tag = PUSH_INST;
+			inst->data.push.mode = mode;
+			pointer_thunk_request(&assm->parse.thunks, subname, &inst->data.push.bytes);
+			assm->parse.instruction_count += 1;
+			continue;
+		case IDENTIFIER_TOKEN:
+			token next = assm->tokens[i];
+			if (next.tag == EXEC_TOKEN){
+				i += 1;	
+				inst->tag = EXEC_INST;
+				char* name = t.str.text;
+				uint64_t size = t.str.size;
+				char save = name[size];
+				name[size] = '\0';
+				pointer_thunk_request(&assm->parse.thunks, name, &inst->data.exec.pointer);
+				name[size] = save;
+			}
+			else if (next.tag == WORD_TOKEN){
+				i += 1;	
+				char* name = t.str.text;
+				uint64_t size = t.str.size;
+				char save = name[size];
+				name[size] = '\0';
+				uint64_t* index = pool_request(assm->mem, sizeof(uint64_t));
+				*index = assm->parse.instruction_count;
+				uint64_t_map_insert(&assm->parse.labels, name, index);
+				pointer_thunk_fulfill(&assm->parse.thunks, name, *index);
+				name[size] = save;
+				assm->parse.super_label = name;
+				assm->parse.super_label_size = size;
+				continue;
+			}
+			else if (next.tag == SUBWORD_TOKEN){
+				i += 1;
+				uint64_t size = t.str.size;
+				assert_local(assm->parse.super_label != NULL);
+				char* subname = pool_request(assm->mem, assm->parse.super_label_size+size);
+				strncpy(subname, assm->parse.super_label, assm->parse.super_label_size);
+				strncat(subname, t.str.text, size);
+				subname[assm->parse.super_label_size+size] = '\0';
+				uint64_t* index = pool_request(assm->mem, sizeof(uint64_t));
+				*index = assm->parse.instruction_count;
+				uint64_t_map_insert(&assm->parse.labels, subname, index);
+				pointer_thunk_fulfill(&assm->parse.thunks, subname, *index);
+				continue;
+			}
+			else{
+				inst->tag = PUSH_INST;
+				char* name = t.str.text;
+				uint64_t size = t.str.size;
+				char save = name[size];
+				name[size] = '\0';
+				pointer_thunk_request(&assm->parse.thunks, name, &inst->data.push.bytes);
+				name[size] = save;
+				inst->data.push.mode = mode;
+			}
+			assm->parse.instruction_count += 1;
+			continue;
+		case ADD_TOKEN: case SUB_TOKEN: case MUL_TOKEN: case DIV_TOKEN:
+		case MOD_TOKEN:
+		case DUP_TOKEN: case POP_TOKEN: case OVR_TOKEN: case SWP_TOKEN:
+		case NIP_TOKEN: case ROT_TOKEN: case CUT_TOKEN:
+		case RET_TOKEN: case BRK_TOKEN:
+		case AND_TOKEN: case OR_TOKEN: case XOR_TOKEN: case NOT_TOKEN:
+		case COM_TOKEN:
+		case U8_TOKEN: case I8_TOKEN: case U16_TOKEN: case I16_TOKEN:
+		case U32_TOKEN: case I32_TOKEN: case U64_TOKEN: case I64_TOKEN:
+		case JMP_TOKEN: case JEQ_TOKEN: case JTR_TOKEN: case JFA_TOKEN:
+		case JNE_TOKEN: case JLT_TOKEN: case JLE_TOKEN: case JGT_TOKEN:
+		case JGE_TOKEN:
+			token next_dot = assm->tokens[i];
+			if (next_dot.tag == EXEC_TOKEN){
+				i += 1;
+			}
+			inst->tag = OPCODE_INST;
+			inst->data.builtin.function = (void (*)())t.tag; // TODO these need to be filled as pointers in the enumeration
+			assm->parse.instruction_count += 1;
+			continue;
+		case STRING_TOKEN:
+			for (uint64_t c = 0;c<t.str.size;++c){
+				inst->tag = PUSH_INST;
+				inst->data.push.bytes = t.str.text[c];
+				inst->data.push.mode = MODE_I8;
+				assm->parse.instruction_count += 1;
+				inst = &assm->parse.instructions[assm->parse.instruction_count];
+			}
+			continue;
+		case CHAR_TOKEN:
+			inst->tag = PUSH_INST;
+			inst->data.push.bytes = t.val;
+			inst->data.push.mode = mode;
+			assm->parse.instruction_count += 1;
+			continue;
+		case INTEGER_TOKEN:
+			inst->tag = PUSH_INST;
+			inst->data.push.bytes = t.val;
+			if (t.val < 0xFF){
+				inst->data.push.mode = MODE_U8;
+			}
+			else if (t.val < 0xFFFF){
+				inst->data.push.mode = MODE_U16;
+			}
+			else if (t.val < 0xFFFFFFFF){
+				inst->data.push.mode = MODE_U32;
+			}
+			else{
+				inst->data.push.mode = MODE_U64;
+			}
+			if (t.s == 1){
+				inst->data.push.mode += 1;
+				inst->data.push.bytes *= -1; // TODO this probably doesnt work
+			}
+			assm->parse.instruction_count += 1;
+			continue;
+		}
+	}
+	return 0;
+}
+
+void show_instructions(assembler* const assm){
+	printf("INSTRUCTIONS:\n");
+	for (uint64_t i = 0;i<assm->parse.instruction_count;++i){
+		instruction inst = assm->parse.instructions[i];
+		switch (inst.tag){
+		case PUSH_INST:
+			printf("PUSH %lx | ", inst.data.push.bytes);
+			continue;
+		case EXEC_INST:
+			printf("EXEC %lu | ", inst.data.exec.pointer);
+			continue;
+		case OPCODE_INST:
+			printf("BUILTIN %p | ", inst.data.builtin.function);
+			continue;
+		default:
+			printf("UNKNOWN INSTRUCTION TYPE\n");
+		}
+	}
+}
+
 uint8_t
 assemble_cstr(assembler* const assm){
 	lex_cstr(assm);
 	assert_prop();
 #ifdef DEBUG
 	show_tokens(assm);
+#endif
+	parse_tokens(assm);
+	assert_prop();
+#ifdef DEBUG
+	show_instructions(assm);
 #endif
 	return 0;
 }
@@ -490,7 +709,18 @@ assemble_file(const char* input, const char* output){
 	}
 	TOKEN_map opmap = TOKEN_map_init(&mem);
 	opmap_fill(&opmap);
+	uint64_t_map labels = uint64_t_map_init(&mem);
+	pointer_thunk_map thunks = pointer_thunk_map_init(&mem);
+	parser parse = {
+		.instruction_count = 0,
+		.instructions = NULL,
+		.labels=labels,
+		.thunks=thunks,
+		.super_label=NULL,
+		.super_label_size = 0
+	};
 	assembler assm = {
+		.parse = parse,
 		.input = str,
 		.mem = &mem,
 		.tokens = NULL,
