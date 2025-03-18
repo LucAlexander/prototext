@@ -96,6 +96,8 @@ typedef struct instruction {
 		struct {
 			uint64_t bytes;
 			MODE mode;
+			uint8_t ref;
+			char* label;
 		} push;
 		struct {
 			uint64_t pointer;

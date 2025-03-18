@@ -527,6 +527,8 @@ parse_tokens(assembler* const assm){
 			subname[assm->parse.super_label_size+size] = '\0';
 			inst->tag = PUSH_INST;
 			inst->data.push.mode = mode;
+			inst->data.push.ref = 1;
+			inst->data.push.label = subname;
 			pointer_thunk_request(&assm->parse.thunks, subname, &inst->data.push.bytes);
 			assm->parse.instruction_count += 1;
 			continue;
@@ -550,7 +552,8 @@ parse_tokens(assembler* const assm){
 				name[size] = '\0';
 				uint64_t* index = pool_request(assm->mem, sizeof(uint64_t));
 				*index = assm->parse.instruction_count;
-				uint64_t_map_insert(&assm->parse.labels, name, index);
+				uint8_t dup = uint64_t_map_insert(&assm->parse.labels, name, index);
+				assert_local(dup == 0, " Duplicate label '%s'\n", name);
 				pointer_thunk_fulfill(&assm->parse.thunks, name, *index);
 				name[size] = save;
 				assm->parse.super_label = name;
@@ -567,7 +570,8 @@ parse_tokens(assembler* const assm){
 				subname[assm->parse.super_label_size+size] = '\0';
 				uint64_t* index = pool_request(assm->mem, sizeof(uint64_t));
 				*index = assm->parse.instruction_count;
-				uint64_t_map_insert(&assm->parse.labels, subname, index);
+				uint8_t dup = uint64_t_map_insert(&assm->parse.labels, subname, index);
+				assert_local(dup == 0, " Duplicate label '%s'\n", subname);
 				pointer_thunk_fulfill(&assm->parse.thunks, subname, *index);
 				continue;
 			}
@@ -580,6 +584,8 @@ parse_tokens(assembler* const assm){
 				pointer_thunk_request(&assm->parse.thunks, name, &inst->data.push.bytes);
 				name[size] = save;
 				inst->data.push.mode = mode;
+				inst->data.push.ref = 0;
+				inst->data.push.label = NULL;
 			}
 			assm->parse.instruction_count += 1;
 			continue;
@@ -609,6 +615,8 @@ parse_tokens(assembler* const assm){
 				inst->tag = PUSH_INST;
 				inst->data.push.bytes = t.str.text[c];
 				inst->data.push.mode = MODE_I8;
+				inst->data.push.ref = 0;
+				inst->data.push.label = NULL;
 				assm->parse.instruction_count += 1;
 				inst = &assm->parse.instructions[assm->parse.instruction_count];
 			}
@@ -617,6 +625,8 @@ parse_tokens(assembler* const assm){
 			inst->tag = PUSH_INST;
 			inst->data.push.bytes = t.val;
 			inst->data.push.mode = mode;
+			inst->data.push.ref = 0;
+			inst->data.push.label = NULL;
 			assm->parse.instruction_count += 1;
 			continue;
 		case INTEGER_TOKEN:
@@ -638,6 +648,8 @@ parse_tokens(assembler* const assm){
 				inst->data.push.mode += 1;
 				inst->data.push.bytes *= -1; // TODO this probably doesnt work
 			}
+			inst->data.push.ref = 0;
+			inst->data.push.label = NULL;
 			assm->parse.instruction_count += 1;
 			continue;
 		}
@@ -651,7 +663,11 @@ void show_instructions(assembler* const assm){
 		instruction inst = assm->parse.instructions[i];
 		switch (inst.tag){
 		case PUSH_INST:
-			printf("PUSH %lx, mode %u | ", inst.data.push.bytes, inst.data.push.mode);
+			printf("PUSH %lx, mode %u ", inst.data.push.bytes, inst.data.push.mode);
+			if (inst.data.push.ref == 1){
+				printf("(%s) ", inst.data.push.label);
+			}
+			printf("| ");
 			continue;
 		case EXEC_INST:
 			printf("EXEC %lu |\n", inst.data.exec.pointer);
