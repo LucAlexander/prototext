@@ -15,7 +15,7 @@ MAP_IMPL(pointer_thunk)
 	}
 
 #define assert_prop()\
-	if (assm->err != 0){\
+	if (*assm->err != 0){\
 		return 0;\
 	}
 
@@ -468,6 +468,31 @@ void pointer_thunk_fulfill(pointer_thunk_map* map, char* const name, uint64_t po
 }
 
 uint8_t
+check_label_bucket(assembler* const assm, pointer_thunk_map_bucket* bucket){
+	if (bucket->tag == BUCKET_EMPTY){
+		return 0;
+	}
+	assert_local(bucket->value->tag == THUNK_RESOLVED, "Unresolved label reference '%s'\n", bucket->key);
+	if (bucket->left != NULL){
+		check_label_bucket(assm, bucket->left);
+	}
+	if (bucket->right != NULL){
+		check_label_bucket(assm, bucket->right);
+	}
+	return 0;
+}
+
+uint8_t
+unresolved_labels(assembler* const assm){
+	HASHMAP_ITERATE(i){
+		pointer_thunk_map_bucket* bucket = &assm->parse.thunks.buckets[i];
+		check_label_bucket(assm, bucket);
+		assert_prop();
+	}
+	return 0;
+}
+
+uint8_t
 parse_tokens(assembler* const assm){
 	assm->parse.instructions = pool_request(assm->mem, sizeof(instruction)*2*assm->token_count);
 	uint8_t mode = MODE_U8;
@@ -627,6 +652,7 @@ void show_instructions(assembler* const assm){
 			printf("UNKNOWN INSTRUCTION TYPE\n");
 		}
 	}
+	printf("\n");
 }
 
 uint8_t
@@ -637,6 +663,8 @@ assemble_cstr(assembler* const assm){
 	show_tokens(assm);
 #endif
 	parse_tokens(assm);
+	assert_prop();
+	unresolved_labels(assm);
 	assert_prop();
 #ifdef DEBUG
 	show_instructions(assm);
@@ -734,8 +762,9 @@ assemble_file(const char* input, const char* output){
 		.mem = &mem,
 		.tokens = NULL,
 		.opmap=opmap,
-		.err = 0
+		.err = pool_request(&mem, sizeof(char)*(ERROR_BUFFER+1))
 	};
+	*assm.err = '\0';
 	assemble_cstr(&assm);
 	if (assm.err != 0){
 		fprintf(stderr, "%s\n", assm.err);
