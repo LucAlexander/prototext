@@ -292,6 +292,9 @@ show_tokens(assembler* const assm){
 		case IDENTIFIER_TOKEN:
 			printf("IDEN | ");
 			break;
+		case WRITE_TOKEN:
+			printf("WRITE | ");
+			break;
 		case ADD_TOKEN:
 			printf("ADD | ");
 			break;
@@ -306,6 +309,12 @@ show_tokens(assembler* const assm){
 			break;
 		case MOD_TOKEN:
 			printf("MOD | ");
+			break;
+		case SHR_TOKEN:
+			printf("SHR | ");
+			break;
+		case SHL_TOKEN:
+			printf("SHL | ");
 			break;
 		case DUP_TOKEN:
 			printf("DUP | ");
@@ -462,6 +471,7 @@ void pointer_thunk_fulfill(pointer_thunk_map* map, char* const name, uint64_t po
 	}
 	while (res != NULL){
 		*res->data.waiting_pointer = pointer;
+		res->tag = THUNK_RESOLVED;
 		res = res->next;
 	}
 	res->tag = THUNK_RESOLVED;
@@ -511,7 +521,7 @@ parse_tokens(assembler* const assm){
 			assert_local(next_iden.tag == IDENTIFIER_TOKEN);
 			i += 1;
 			uint64_t size = next_iden.str.size;
-			char* subname = pool_request(assm->mem, assm->parse.super_label_size+size);
+			char* subname = pool_request(assm->mem, assm->parse.super_label_size+size+1);
 			strncpy(subname, assm->parse.super_label, assm->parse.super_label_size);
 			strncat(subname, next_iden.str.text, size);
 			subname[assm->parse.super_label_size+size] = '\0';
@@ -551,7 +561,7 @@ parse_tokens(assembler* const assm){
 				i += 1;
 				uint64_t size = t.str.size;
 				assert_local(assm->parse.super_label != NULL);
-				char* subname = pool_request(assm->mem, assm->parse.super_label_size+size);
+				char* subname = pool_request(assm->mem, assm->parse.super_label_size+size+1);
 				strncpy(subname, assm->parse.super_label, assm->parse.super_label_size);
 				strncat(subname, t.str.text, size);
 				subname[assm->parse.super_label_size+size] = '\0';
@@ -573,8 +583,9 @@ parse_tokens(assembler* const assm){
 			}
 			assm->parse.instruction_count += 1;
 			continue;
+		case WRITE_TOKEN:
 		case ADD_TOKEN: case SUB_TOKEN: case MUL_TOKEN: case DIV_TOKEN:
-		case MOD_TOKEN:
+		case MOD_TOKEN: case SHR_TOKEN: case SHL_TOKEN:
 		case DUP_TOKEN: case POP_TOKEN: case OVR_TOKEN: case SWP_TOKEN:
 		case NIP_TOKEN: case ROT_TOKEN: case CUT_TOKEN:
 		case RET_TOKEN: case BRK_TOKEN:
@@ -643,10 +654,10 @@ void show_instructions(assembler* const assm){
 			printf("PUSH %lx, mode %u | ", inst.data.push.bytes, inst.data.push.mode);
 			continue;
 		case EXEC_INST:
-			printf("EXEC %lu | ", inst.data.exec.pointer);
+			printf("EXEC %lu |\n", inst.data.exec.pointer);
 			continue;
 		case OPCODE_INST:
-			printf("BUILTIN %p | ", inst.data.builtin.function);
+			printf("BUILTIN %p |\n", inst.data.builtin.function);
 			continue;
 		default:
 			printf("UNKNOWN INSTRUCTION TYPE\n");
@@ -664,26 +675,29 @@ assemble_cstr(assembler* const assm){
 #endif
 	parse_tokens(assm);
 	assert_prop();
-	unresolved_labels(assm);
-	assert_prop();
 #ifdef DEBUG
 	show_instructions(assm);
 #endif
+	unresolved_labels(assm);
+	assert_prop();
 	return 0;
 }
 
 void
 opmap_fill(TOKEN_map* opmap){
-	uint64_t opcode_count = STRING_TOKEN-ADD_TOKEN;
+	uint64_t opcode_count = STRING_TOKEN-WRITE_TOKEN;
 	TOKEN* tokens = pool_request(opmap->mem, sizeof(TOKEN)*opcode_count);
 	for (uint8_t i = 0;i<opcode_count;++i){
-		tokens[i] = i+ADD_TOKEN;
+		tokens[i] = i+WRITE_TOKEN;
 	}
+	TOKEN_map_insert(opmap, "write", tokens++);
 	TOKEN_map_insert(opmap, "add", tokens++);
 	TOKEN_map_insert(opmap, "sub", tokens++);
 	TOKEN_map_insert(opmap, "mul", tokens++);
 	TOKEN_map_insert(opmap, "div", tokens++);
 	TOKEN_map_insert(opmap, "mod", tokens++);
+	TOKEN_map_insert(opmap, "shr", tokens++);
+	TOKEN_map_insert(opmap, "shl", tokens++);
 	TOKEN_map_insert(opmap, "dup", tokens++);
 	TOKEN_map_insert(opmap, "pop", tokens++);
 	TOKEN_map_insert(opmap, "ovr", tokens++);
