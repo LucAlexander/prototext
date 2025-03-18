@@ -29,7 +29,7 @@ lex_integer(assembler* const assm, token* const t){
 		assm->input.i += 1;
 		t->s = 1;
 	}
-	uint8_t digit = 1;
+	uint64_t last = 0;
 	if (c == '0'){
 		assm->input.i += 1;
 		t->str.size += 1;
@@ -38,21 +38,23 @@ lex_integer(assembler* const assm, token* const t){
 			assm->input.i += 1;
 			t->str.size += 1;
 			while (assm->input.i < assm->input.size){
+				last = t->val;
+				t->val <<= 4;
 				c = assm->input.text[assm->input.i];
 				if (c >= '0' && c <= '9'){
-					t->val += (c - 48) * digit;
+					t->val += (c - 48);
 				}
 				else if (c >= 'A' && c <= 'F'){
-					t->val += (c - 55) * digit;
+					t->val += (c - 55);
 				}
 				else if (c >= 'a' && c <= 'f'){
-					t->val += (c - 87) * digit;
+					t->val += (c - 87);
 				}
 				else {
+					t->val = last;
 					t->str.size -= 1;
 					return 0;
 				}
-				digit *= 16;
 				assm->input.i += 1;
 				t->str.size += 1;
 			}
@@ -62,13 +64,15 @@ lex_integer(assembler* const assm, token* const t){
 			assm->input.i += 1;
 			t->str.size += 1;
 			while (assm->input.i < assm->input.size){
+				last = t->val;
+				t->val <<= 1;
 				c = assm->input.text[assm->input.i];
 				if (c != '0' && c != '1'){
+					t->val = last;
 					t->str.size -= 1;
 					return 0;
 				}
-				t->val += (c-48) * digit;
-				digit *= 2;
+				t->val += (c-48);
 				assm->input.i += 1;
 				t->str.size += 1;
 			}
@@ -78,13 +82,15 @@ lex_integer(assembler* const assm, token* const t){
 			assm->input.i += 1;
 			t->str.size += 1;
 			while (assm->input.i < assm->input.size){
+				last = t->val;
+				t->val <<= 3;
 				c = assm->input.text[assm->input.i];
 				if (c < '0' && c > '7'){
+					t->val = last;
 					t->str.size -= 1;
 					return 0;
 				}
-				t->val += (c-48) * digit;
-				digit *= 8;
+				t->val += (c-48);
 				assm->input.i += 1;
 				t->str.size += 1;
 			}
@@ -92,13 +98,15 @@ lex_integer(assembler* const assm, token* const t){
 		}
 	}
 	while (assm->input.i < assm->input.size){
+		last = t->val;
+		t->val *= 10;
 		c = assm->input.text[assm->input.i];
 		if (isdigit(c) == 0){
+			t->val = last;
 			t->str.size -= 1;
 			return 0;
 		}
-		t->val += (c-48)*digit;
-		digit *= 10;
+		t->val += (c-48);
 		assm->input.i += 1;
 		t->str.size += 1;
 	}
@@ -312,6 +320,9 @@ show_tokens(assembler* const assm){
 			printf("SWP | ");
 			break;
 		case NIP_TOKEN:
+			printf("NIP | ");
+			break;
+		case ROT_TOKEN:
 			printf("ROT | ");
 			break;
 		case CUT_TOKEN:
@@ -396,7 +407,7 @@ show_tokens(assembler* const assm){
 			printf("CHAR | (%c) ", (char)t->val);
 			break;
 		case INTEGER_TOKEN:
-			printf("INT | ");
+			printf("INT | (%lx) ", t->val);
 			break;
 		default:
 			printf("UNKNOWN | ");
@@ -434,8 +445,6 @@ void pointer_thunk_request(pointer_thunk_map* map, char* const name, uint64_t* p
 	res->next->data.waiting_pointer = pointer;
 	return;
 }
-
-
 
 void pointer_thunk_fulfill(pointer_thunk_map* map, char* const name, uint64_t pointer){
 	pointer_thunk* res = pointer_thunk_map_access(map, name);
@@ -606,7 +615,7 @@ void show_instructions(assembler* const assm){
 		instruction inst = assm->parse.instructions[i];
 		switch (inst.tag){
 		case PUSH_INST:
-			printf("PUSH %lx | ", inst.data.push.bytes);
+			printf("PUSH %lx, mode %u | ", inst.data.push.bytes, inst.data.push.mode);
 			continue;
 		case EXEC_INST:
 			printf("EXEC %lu | ", inst.data.exec.pointer);
