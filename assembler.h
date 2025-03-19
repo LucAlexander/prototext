@@ -36,7 +36,6 @@ typedef enum TOKEN {
 	ROT_TOKEN,
 	CUT_TOKEN,
 	RET_TOKEN,
-	BRK_TOKEN,
 	AND_TOKEN,
 	OR_TOKEN,
 	XOR_TOKEN,
@@ -104,9 +103,6 @@ typedef struct instruction {
 		struct {
 			uint64_t pointer;
 		} exec;
-		struct {
-			void (*function)();
-		} builtin;
 	} data;
 	enum {
 		PUSH_INST,
@@ -139,6 +135,10 @@ typedef struct label_assoc {
 	label_assoc* next;
 	char* label;
 	uint64_t instruction;
+	enum {
+		WORD_LABEL,
+		SUBWORD_LABEL
+	} tag;
 } label_assoc;
 
 typedef struct parser {

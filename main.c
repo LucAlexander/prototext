@@ -340,9 +340,6 @@ show_tokens(assembler* const assm){
 		case RET_TOKEN:
 			printf("RET | ");
 			break;
-		case BRK_TOKEN:
-			printf("BRK | ");
-			break;
 		case AND_TOKEN:
 			printf("AND | ");
 			break;
@@ -577,6 +574,7 @@ parse_tokens(assembler* const assm){
 				strncpy(current_assoc->label, name, size);
 				current_assoc->instruction = *index;
 				current_assoc->next = pool_request(assm->mem, sizeof(label_assoc));
+				current_assoc->tag = WORD_LABEL;
 				current_assoc = current_assoc->next;
 				name[size] = save;
 				assm->parse.super_label = name;
@@ -596,6 +594,11 @@ parse_tokens(assembler* const assm){
 				uint8_t dup = uint64_t_map_insert(&assm->parse.labels, subname, index);
 				assert_local(dup == 0, " Duplicate label '%s'\n", subname);
 				pointer_thunk_fulfill(&assm->parse.thunks, subname, *index);
+				current_assoc->label = subname;
+				current_assoc->instruction = *index;
+				current_assoc->next = pool_request(assm->mem, sizeof(label_assoc));
+				current_assoc->tag = SUBWORD_LABEL;
+				current_assoc = current_assoc->next;
 				continue;
 			}
 			else{
@@ -612,7 +615,7 @@ parse_tokens(assembler* const assm){
 			}
 			assm->parse.instruction_count += 1;
 			continue;
-		case RET_TOKEN: case BRK_TOKEN:
+		case RET_TOKEN:
 			broke = 1;
 		case WRITE_TOKEN:
 		case ADD_TOKEN: case SUB_TOKEN: case MUL_TOKEN: case DIV_TOKEN:
@@ -631,7 +634,6 @@ parse_tokens(assembler* const assm){
 				i += 1;
 			}
 			inst->tag = OPCODE_INST;
-			inst->data.builtin.function = (void (*)())t.tag; // TODO these need to be filled as pointers in the enumeration
 			assm->parse.instruction_count += 1;
 			continue;
 		case STRING_TOKEN:
@@ -698,18 +700,13 @@ void show_instructions(assembler* const assm){
 			printf("EXEC %lu |\n", inst.data.exec.pointer);
 			continue;
 		case OPCODE_INST:
-			printf("BUILTIN %p |\n", inst.data.builtin.function);
+			printf("BUILTIN |\n");
 			continue;
 		default:
 			printf("UNKNOWN INSTRUCTION TYPE\n");
 		}
 	}
 	printf("\n");
-}
-
-uint8_t
-generate_header(assembler* const assm){
-	return 0;
 }
 
 uint8_t
@@ -765,7 +762,6 @@ opmap_fill(TOKEN_map* opmap){
 	TOKEN_map_insert(opmap, "rot", tokens++);
 	TOKEN_map_insert(opmap, "cut", tokens++);
 	TOKEN_map_insert(opmap, "ret", tokens++);
-	TOKEN_map_insert(opmap, "brk", tokens++);
 	TOKEN_map_insert(opmap, "and", tokens++);
 	TOKEN_map_insert(opmap, "or", tokens++);
 	TOKEN_map_insert(opmap, "xor", tokens++);
