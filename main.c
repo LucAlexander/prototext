@@ -504,10 +504,26 @@ unresolved_labels(assembler* const assm){
 
 uint8_t
 parse_tokens(assembler* const assm){
-	assm->parse.instructions = pool_request(assm->mem, sizeof(instruction)*2*assm->token_count);
+	assm->parse.instruction_cap = 2*assm->token_count;
+	assm->parse.instructions = pool_request(assm->mem, sizeof(instruction)*2*assm->parse.instruction_cap);
+	assm->parse.label_order = pool_request(assm->mem, sizeof(label_assoc));
+	assm->parse.label_order->next = NULL;
+	assm->parse.label_order->label = NULL;
+	assm->parse.label_order->instruction = 0;
+	label_assoc* current_assoc = assm->parse.label_order;
 	uint8_t mode = MODE_U8;
 	uint64_t i = 0;
+	uint8_t broke = 1;
 	while (i < assm->token_count){
+		if (assm->parse.instruction_count == assm->parse.instruction_cap){
+			uint64_t new_cap = assm->parse.instruction_cap * 2;
+			instruction* new = pool_request(assm->mem, sizeof(instruction)*new_cap);
+			for (uint64_t k = 0;k<assm->parse.instruction_cap;++k){
+				new[i] = assm->parse.instructions[k];
+			}
+			assm->parse.instruction_cap = new_cap;
+			assm->parse.instructions = new;
+		}
 		instruction* inst = &assm->parse.instructions[assm->parse.instruction_count];
 		token t = assm->tokens[i];
 		i += 1;
@@ -545,6 +561,8 @@ parse_tokens(assembler* const assm){
 				name[size] = save;
 			}
 			else if (next.tag == WORD_TOKEN){
+				assert_local(broke == 1);
+				broke = 0;
 				i += 1;	
 				char* name = t.str.text;
 				uint64_t size = t.str.size;
@@ -555,6 +573,11 @@ parse_tokens(assembler* const assm){
 				uint8_t dup = uint64_t_map_insert(&assm->parse.labels, name, index);
 				assert_local(dup == 0, " Duplicate label '%s'\n", name);
 				pointer_thunk_fulfill(&assm->parse.thunks, name, *index);
+				current_assoc->label = pool_request(assm->mem, (size+1) * sizeof(char));
+				strncpy(current_assoc->label, name, size);
+				current_assoc->instruction = *index;
+				current_assoc->next = pool_request(assm->mem, sizeof(label_assoc));
+				current_assoc = current_assoc->next;
 				name[size] = save;
 				assm->parse.super_label = name;
 				assm->parse.super_label_size = size;
@@ -589,12 +612,13 @@ parse_tokens(assembler* const assm){
 			}
 			assm->parse.instruction_count += 1;
 			continue;
+		case RET_TOKEN: case BRK_TOKEN:
+			broke = 1;
 		case WRITE_TOKEN:
 		case ADD_TOKEN: case SUB_TOKEN: case MUL_TOKEN: case DIV_TOKEN:
 		case MOD_TOKEN: case SHR_TOKEN: case SHL_TOKEN:
 		case DUP_TOKEN: case POP_TOKEN: case OVR_TOKEN: case SWP_TOKEN:
 		case NIP_TOKEN: case ROT_TOKEN: case CUT_TOKEN:
-		case RET_TOKEN: case BRK_TOKEN:
 		case AND_TOKEN: case OR_TOKEN: case XOR_TOKEN: case NOT_TOKEN:
 		case COM_TOKEN:
 		case U8_TOKEN: case I8_TOKEN: case U16_TOKEN: case I16_TOKEN:
@@ -654,6 +678,7 @@ parse_tokens(assembler* const assm){
 			continue;
 		}
 	}
+	assert_local(broke == 1);
 	return 0;
 }
 
@@ -683,6 +708,23 @@ void show_instructions(assembler* const assm){
 }
 
 uint8_t
+generate_header(assembler* const assm){
+	return 0;
+}
+
+uint8_t
+generate_instructions(assembler* const assm){
+	assm->code.cap = INITIAL_TARGET_SIZE;
+	assm->code.header_cap = INITIAL_TARGET_SIZE;
+	assm->code.text = pool_request(assm->mem, sizeof(char)*assm->code.cap);
+	assm->code.header = pool_request(assm->mem, sizeof(char)*assm->code.header_cap);
+	label_assoc* next = assm->parse.label_order;
+	//TODO add header/runtime + invocation
+	//TODO run through in order, generating functions as they occur in the assoc list order
+	return 0;
+}
+
+uint8_t
 assemble_cstr(assembler* const assm){
 	lex_cstr(assm);
 	assert_prop();
@@ -696,6 +738,7 @@ assemble_cstr(assembler* const assm){
 #endif
 	unresolved_labels(assm);
 	assert_prop();
+	generate_instructions(assm);
 	return 0;
 }
 
@@ -782,12 +825,19 @@ assemble_file(const char* input, const char* output){
 		.instruction_count = 0,
 		.instructions = NULL,
 		.labels=labels,
+		.label_order = NULL,
 		.thunks=thunks,
 		.super_label=NULL,
 		.super_label_size = 0
 	};
+	target code = {
+		.text = NULL,
+		.size = 0,
+		.cap = 0
+	};
 	assembler assm = {
 		.parse = parse,
+		.code = code,
 		.input = str,
 		.mem = &mem,
 		.tokens = NULL,

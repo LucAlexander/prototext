@@ -12,6 +12,8 @@
 #define ARENA_SIZE 0x10000
 #define TOKEN_MAX 64
 
+#define INITIAL_TARGET_SIZE 0x1000
+
 typedef enum TOKEN {
 	EXEC_TOKEN='.',
 	WORD_TOKEN=':',
@@ -132,19 +134,37 @@ MAP_DEF(pointer_thunk)
 void pointer_thunk_request(pointer_thunk_map* map, char* const name, uint64_t* pointer);
 void pointer_thunk_fulfill(pointer_thunk_map* map, char* const name, uint64_t pointer);
 
+typedef struct label_assoc label_assoc;
+typedef struct label_assoc {
+	label_assoc* next;
+	char* label;
+	uint64_t instruction;
+} label_assoc;
+
 typedef struct parser {
-	uint64_t instruction_count;
-	instruction* instructions;
 	uint64_t_map labels;
+	label_assoc* label_order;
 	pointer_thunk_map thunks;
 	char* super_label;
 	uint64_t super_label_size;
+	instruction* instructions;
+	uint64_t instruction_count;
+	uint64_t instruction_cap;
 } parser;
+
+typedef struct target {
+	char* text;
+	char* header;
+	uint64_t size;
+	uint64_t cap;
+	uint64_t header_cap;
+} target;
 
 MAP_DEF(TOKEN)
 
 typedef struct assembler {
 	parser parse;
+	target code;
 	string input;
 	pool* mem;
 	token* tokens;
