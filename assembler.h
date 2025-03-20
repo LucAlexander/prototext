@@ -99,10 +99,14 @@ typedef struct instruction {
 			MODE mode;
 			uint8_t ref;
 			char* label;
+			uint64_t size;
 		} push;
 		struct {
+			char* label;
+			uint64_t size;
 			uint64_t pointer;
 		} exec;
+		TOKEN opcode;
 	} data;
 	enum {
 		PUSH_INST,
@@ -134,6 +138,7 @@ typedef struct label_assoc label_assoc;
 typedef struct label_assoc {
 	label_assoc* next;
 	char* label;
+	uint64_t size;
 	uint64_t instruction;
 	enum {
 		WORD_LABEL,

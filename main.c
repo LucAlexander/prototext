@@ -542,6 +542,7 @@ parse_tokens(assembler* const assm){
 			inst->data.push.mode = mode;
 			inst->data.push.ref = 1;
 			inst->data.push.label = subname;
+			inst->data.push.size = size;
 			pointer_thunk_request(&assm->parse.thunks, subname, &inst->data.push.bytes);
 			assm->parse.instruction_count += 1;
 			continue;
@@ -554,6 +555,9 @@ parse_tokens(assembler* const assm){
 				uint64_t size = t.str.size;
 				char save = name[size];
 				name[size] = '\0';
+				inst->data.exec.label = pool_request(assm->mem, size*sizeof(char));
+				strncpy(inst->data.exec.label, name, size);
+				inst->data.exec.size = size;
 				pointer_thunk_request(&assm->parse.thunks, name, &inst->data.exec.pointer);
 				name[size] = save;
 			}
@@ -572,6 +576,7 @@ parse_tokens(assembler* const assm){
 				pointer_thunk_fulfill(&assm->parse.thunks, name, *index);
 				current_assoc->label = pool_request(assm->mem, (size+1) * sizeof(char));
 				strncpy(current_assoc->label, name, size);
+				current_assoc->size = size;
 				current_assoc->instruction = *index;
 				current_assoc->next = pool_request(assm->mem, sizeof(label_assoc));
 				current_assoc->tag = WORD_LABEL;
@@ -595,6 +600,7 @@ parse_tokens(assembler* const assm){
 				assert_local(dup == 0, " Duplicate label '%s'\n", subname);
 				pointer_thunk_fulfill(&assm->parse.thunks, subname, *index);
 				current_assoc->label = subname;
+				current_assoc->size = assm->parse.super_label_size+size;
 				current_assoc->instruction = *index;
 				current_assoc->next = pool_request(assm->mem, sizeof(label_assoc));
 				current_assoc->tag = SUBWORD_LABEL;
@@ -634,6 +640,7 @@ parse_tokens(assembler* const assm){
 				i += 1;
 			}
 			inst->tag = OPCODE_INST;
+			inst->data.opcode = t.tag;
 			assm->parse.instruction_count += 1;
 			continue;
 		case STRING_TOKEN:
@@ -716,8 +723,85 @@ generate_instructions(assembler* const assm){
 	assm->code.text = pool_request(assm->mem, sizeof(char)*assm->code.cap);
 	assm->code.header = pool_request(assm->mem, sizeof(char)*assm->code.header_cap);
 	label_assoc* next = assm->parse.label_order;
-	//TODO add header/runtime + invocation
-	//TODO run through in order, generating functions as they occur in the assoc list order
+	char entrypoint[] = "void PROTOTEXT_ENTRYPOINT(){\n";
+	uint64_t entry_len = sizeof(entrypoint)/sizeof(entrypoint[0]);
+	strncpy(assm->code.text, entrypoint, entry_len)
+	for (uint64_t i = 0;i<assm->parse.instruction_count;++i){
+		while (i == next->instruction){
+			if (next->tag == SUBWORD_LABEL){
+				strncat(assm->code.text, next->label, next->size);
+				strcat(assm->code.text, ":");
+				assm->code.size += next->size+1;
+			}
+			else{
+				char reset_stub[] = "}\nvoid\n";
+				char func_stub[] = "(){";
+				uint64_t reset_len = sizeof(reset_stub)/sizeof(reset_stub[0]);
+				uint64_t func_len = sizeof(func_stub)/sizeof(func_stub[0]);
+				strncat(assm->code.text, reset_stub, reset_len);
+				strncat(assm->code.text, next->label, next->size);
+				strncat(assm->code.text, func_stub, func_len);
+				assm->code.size += reset_len + next->size + func_len;
+			}
+			next = next->next;
+		}
+		instruction* inst = assm->parse.instructions[i];
+		if (inst->tag == PUSH_INST){
+			//TODO
+			continue;
+		}
+		if (inst->tag == EXEC_INST){
+			strncat(assm->code.text, inst->data.exec.label, inst->data.exec.size);
+			strcat(assm->code.text, "();\n");
+			assm->code.size += inst->data.exec.size + 4;
+			continue;
+		}
+		switch (inst->data.opcode){ // TODO
+		case WRITE_TOKEN:
+		case ADD_TOKEN:
+		case SUB_TOKEN:
+		case MUL_TOKEN:
+		case DIV_TOKEN:
+		case MOD_TOKEN:
+		case SHR_TOKEN:
+		case SHL_TOKEN:
+		case DUP_TOKEN:
+		case POP_TOKEN:
+		case OVR_TOKEN:
+		case SWP_TOKEN:
+		case NIP_TOKEN:
+		case ROT_TOKEN:
+		case CUT_TOKEN:
+		case RET_TOKEN:
+		case AND_TOKEN:
+		case OR_TOKEN:
+		case XOR_TOKEN:
+		case NOT_TOKEN:
+		case COM_TOKEN:
+		case U8_TOKEN:
+		case I8_TOKEN:
+		case U16_TOKEN:
+		case I16_TOKEN:
+		case U32_TOKEN:
+		case I32_TOKEN:
+		case U64_TOKEN:
+		case I64_TOKEN:
+		case JMP_TOKEN:
+		case JEQ_TOKEN:
+		case JTR_TOKEN:
+		case JFA_TOKEN:
+		case JNE_TOKEN:
+		case JLT_TOKEN:
+		case JLE_TOKEN:
+		case JGT_TOKEN:
+		case JGE_TOKEN:
+		default:
+			assert_local(0, "Encountered non opcode tag in opcode instruction\n");
+		}
+	}
+	strncat(assm->code.text, "\n}\n", 3);
+	assm->code.size += 3;
+	//TODO add header
 	return 0;
 }
 

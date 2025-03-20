@@ -3,7 +3,7 @@
 
 #include <inttypes.h>
 
-#define PROTOTEXT_STACK_SIZE 0x1000000000
+#define PROTOTEXT_STACK_SIZE 0x1000000
 
 #define PROTOTEXT_PUSH(type, u) *(type*)(&stack[sp-sizeof(type)]) = u; sp -= sizeof(type)
 #define PROTOTEXT_POP(type, var) type var = *(type*)(&stack[sp]); sp += sizeof(type)
