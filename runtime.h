@@ -11,7 +11,16 @@
 #define PROTOTEXT_WRITE() {\
 	PROTOTEXT_POP(uint8_t, file);\
 	PROTOTEXT_POP(uint64_t, len);\
-	fnprintf(file, len, (char*)(&stack[sp-len]));\
+	switch (file){\
+	case 0:\
+		fnprintf(stdin, len, (char*)(&stack[sp-len]));\
+	case 1:\
+		fnprintf(stdout, len, (char*)(&stack[sp-len]));\
+	case 2:\
+		fnprintf(stderr, len, (char*)(&stack[sp-len]));\
+	default:\
+		fnprintf(file, len, (char*)(&stack[sp-len]));\
+	}\
 }
 
 #define PROTOTEXT_ALU_OP(type, op)\

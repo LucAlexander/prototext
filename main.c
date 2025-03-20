@@ -203,13 +203,14 @@ lex_cstr(assembler* const assm){
 			continue;
 		case STRING_OPEN:
 			assm->input.i += 1;
+			t->str.text = &assm->input.text[assm->input.i];
 			while (assm->input.i < assm->input.size){
 				c = assm->input.text[assm->input.i];
 				if (c == '\n'){
 					line += 1;
 				}
 				else if (c == STRING_OPEN){
-					t->str.size += 1;
+					t->str.size -= 1;
 					assm->input.i += 1;
 					break;
 				}
@@ -526,9 +527,11 @@ parse_tokens(assembler* const assm){
 		i += 1;
 		switch (t.tag){
 		case EXEC_TOKEN:
+			assert_local(0, "Unexpected .\n");
 		case WORD_TOKEN:
+			assert_local(0, "Unexpected :\n");
 		case SUBWORD_TOKEN:
-			assert_local(0, "Unexpected . or :\n");
+			assert_local(0, "Unexpected ,\n");
 		case REFERENCE_TOKEN:
 			token next_iden = assm->tokens[i];
 			assert_local(next_iden.tag == IDENTIFIER_TOKEN);
@@ -1076,6 +1079,7 @@ generate_instructions(assembler* const assm, const char* output){
 		assm->code.header[assm->code.header_size] = '\0';
 		fprintf(outfile, (char*)outmem.buffer);
 		fprintf(outfile, assm->code.header);
+		fprintf(outfile, "#endif\n");
 		fclose(outfile);
 		pool_dealloc(&outmem);
 	}
