@@ -539,7 +539,7 @@ parse_tokens(assembler* const assm){
 			strncat(subname, next_iden.str.text, size);
 			subname[assm->parse.super_label_size+size] = '\0';
 			inst->tag = PUSH_INST;
-			inst->data.push.mode = mode;
+			inst->data.push.mode = MODE_U64;
 			inst->data.push.ref = 1;
 			inst->data.push.label = subname;
 			inst->data.push.size = size;
@@ -630,8 +630,38 @@ parse_tokens(assembler* const assm){
 		case NIP_TOKEN: case ROT_TOKEN: case CUT_TOKEN:
 		case AND_TOKEN: case OR_TOKEN: case XOR_TOKEN: case NOT_TOKEN:
 		case COM_TOKEN:
-		case U8_TOKEN: case I8_TOKEN: case U16_TOKEN: case I16_TOKEN:
-		case U32_TOKEN: case I32_TOKEN: case U64_TOKEN: case I64_TOKEN:
+		case U8_TOKEN:
+			mode = MODE_U8;
+			assm->parse.instruction_count += 1;
+			continue;
+		case I8_TOKEN:
+			mode = MODE_I8;
+			assm->parse.instruction_count += 1;
+			continue;
+		case U16_TOKEN:
+			mode = MODE_U16;
+			assm->parse.instruction_count += 1;
+			continue;
+		case I16_TOKEN:
+			mode = MODE_I16;
+			assm->parse.instruction_count += 1;
+			continue;
+		case U32_TOKEN:
+			mode = MODE_U32;
+			assm->parse.instruction_count += 1;
+			continue;
+		case I32_TOKEN:
+			mode = MODE_I32;
+			assm->parse.instruction_count += 1;
+			continue;
+		case U64_TOKEN:
+			mode = MODE_U64;
+			assm->parse.instruction_count += 1;
+			continue;
+		case I64_TOKEN:
+			mode = MODE_I64;
+			assm->parse.instruction_count += 1;
+			continue;
 		case JMP_TOKEN: case JEQ_TOKEN: case JTR_TOKEN: case JFA_TOKEN:
 		case JNE_TOKEN: case JLT_TOKEN: case JLE_TOKEN: case JGT_TOKEN:
 		case JGE_TOKEN:
@@ -725,8 +755,12 @@ generate_instructions(assembler* const assm){
 	label_assoc* next = assm->parse.label_order;
 	char entrypoint[] = "void PROTOTEXT_ENTRYPOINT(){\n";
 	uint64_t entry_len = sizeof(entrypoint)/sizeof(entrypoint[0]);
-	strncpy(assm->code.text, entrypoint, entry_len)
+	strncpy(assm->code.text, entrypoint, entry_len);
+	char* last_label = NULL;
+	uint64_t len = 0;
+	char* push = pool_request(assm->mem, sizeof(char)*MAX_PUSH_SIZE+1);
 	for (uint64_t i = 0;i<assm->parse.instruction_count;++i){
+		push[0] = '\0';
 		while (i == next->instruction){
 			if (next->tag == SUBWORD_LABEL){
 				strncat(assm->code.text, next->label, next->size);
@@ -747,7 +781,31 @@ generate_instructions(assembler* const assm){
 		}
 		instruction* inst = assm->parse.instructions[i];
 		if (inst->tag == PUSH_INST){
-			//TODO
+			last_label = NULL;
+			if (inst->data.push.ref == 1){
+				last_label = inst->data.push.label;
+			}
+			switch (inst->data.push.mode){
+			case MODE_U8:
+			case MODE_I8:
+				snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_PUSH(uint8_t, %u);\n", inst->data.push.bytes);
+				break;
+			case MODE_U16:
+			case MODE_I16:
+				snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_PUSH(uint16_t, %u);\n", inst->data.push.bytes);
+				break;
+			case MODE_U32:
+			case MODE_I32:
+				snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_PUSH(uint32_t, %u);\n", inst->data.push.bytes);
+				break;
+			case MODE_U64:
+			case MODE_I64:
+				snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_PUSH(uint64_t, %u);\n", inst->data.push.bytes);
+				break;
+			}
+			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
+			assm->code.size += len;
 			continue;
 		}
 		if (inst->tag == EXEC_INST){
@@ -778,23 +836,60 @@ generate_instructions(assembler* const assm){
 		case XOR_TOKEN:
 		case NOT_TOKEN:
 		case COM_TOKEN:
-		case U8_TOKEN:
-		case I8_TOKEN:
-		case U16_TOKEN:
-		case I16_TOKEN:
-		case U32_TOKEN:
-		case I32_TOKEN:
-		case U64_TOKEN:
-		case I64_TOKEN:
 		case JMP_TOKEN:
-		case JEQ_TOKEN:
+			assert_local(last_label != NULL);
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JMP(%s);\n", last_label);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			assm->code.size += len;
+			continue;
+		case JEQ_TOKEN: // TODO these all need types
+			assert_local(last_label != NULL);
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JEQ(%s);\n", last_label);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			assm->code.size += len;
+			continue;
 		case JTR_TOKEN:
+			assert_local(last_label != NULL);
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JTR(%s);\n", last_label);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			assm->code.size += len;
+			continue;
 		case JFA_TOKEN:
+			assert_local(last_label != NULL);
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JFA(%s);\n", last_label);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			assm->code.size += len;
+			continue;
 		case JNE_TOKEN:
+			assert_local(last_label != NULL);
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JNE(%s);\n", last_label);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			assm->code.size += len;
+			continue;
 		case JLT_TOKEN:
+			assert_local(last_label != NULL);
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JLT(%s);\n", last_label);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			assm->code.size += len;
+			continue;
 		case JLE_TOKEN:
+			assert_local(last_label != NULL);
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JLE(%s);\n", last_label);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			assm->code.size += len;
+			continue;
 		case JGT_TOKEN:
+			assert_local(last_label != NULL);
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JGT(%s);\n", last_label);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			assm->code.size += len;
+			continue;
 		case JGE_TOKEN:
+			assert_local(last_label != NULL);
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JGE(%s);\n", last_label);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			assm->code.size += len;
+			continue;
 		default:
 			assert_local(0, "Encountered non opcode tag in opcode instruction\n");
 		}

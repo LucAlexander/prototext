@@ -27,9 +27,9 @@
 #define PROTOTEXT_MOD(type) { PROTOTEXT_ALU_OP(type, %) }
 #define PROTOTEXT_SHR(type) { PROTOTEXT_ALU_OP(type, >>) }
 #define PROTOTEXT_SHL(type) { PROTOTEXT_ALU_OP(type, <<) }
-#define PROTOTEXT_AND() { PROTOTEXT_ALU_OP(type, &) }
-#define PROTOTEXT_OR() { PROTOTEXT_ALU_OP(type, |) }
-#define PROTOTEXT_XOR() { PROTOTEXT_ALU_OP(type, ^) }
+#define PROTOTEXT_AND(type) { PROTOTEXT_ALU_OP(type, &) }
+#define PROTOTEXT_OR(type) { PROTOTEXT_ALU_OP(type, |) }
+#define PROTOTEXT_XOR(type) { PROTOTEXT_ALU_OP(type, ^) }
 
 #define PROTOTEXT_DUP(type) {\
 	PROTOTEXT_POP(type, a);\
@@ -41,7 +41,7 @@
 	PROTOTEXT_POP(type, a);\
 }
 
-#define PROTOTEXT_OVR() {\
+#define PROTOTEXT_OVR(type) {\
 	PROTOTEXT_POP(type, a);\
 	PROTOTEXT_POP(type, b);\
 	PROTOTEXT_PUSH(type, b);\
@@ -49,20 +49,20 @@
 	PROTOTEXT_PUSH(type, b);\
 }
 
-#define PROTOTEXT_SWP() {\
+#define PROTOTEXT_SWP(type) {\
 	PROTOTEXT_POP(type, a);\
 	PROTOTEXT_POP(type, b);\
 	PROTOTEXT_PUSH(type, a);\
 	PROTOTEXT_PUSH(type, b);\
 }
 
-#define PROTOTEXT_NIP() {\
+#define PROTOTEXT_NIP(type) {\
 	PROTOTEXT_POP(type, a);\
 	PROTOTEXT_POP(type, b);\
 	PROTOTEXT_PUSH(type, a);\
 }
 
-#define PROTOTEXT_ROT() {\
+#define PROTOTEXT_ROT(type) {\
 	PROTOTEXT_POP(type, a);\
 	PROTOTEXT_POP(type, b);\
 	PROTOTEXT_POP(type, c);\
@@ -71,7 +71,7 @@
 	PROTOTEXT_PUSH(type, c);\
 }
 
-#define PROTOTEXT_CUT() {\
+#define PROTOTEXT_CUT(type) {\
 	PROTOTEXT_POP(type, a);\
 	PROTOTEXT_POP(type, b);\
 	PROTOTEXT_POP(type, c);\
@@ -79,34 +79,37 @@
 	PROTOTEXT_PUSH(type, a);\
 }
 
-#define PROTOTEXT_RET() {\
+#define PROTOTEXT_RET(type) {\
 	return;\
 }
 
-#define PROTOTEXT_NOT() {\
+#define PROTOTEXT_NOT(type) {\
 	PROTOTEXT_POP(type, a);\
 	a = !a;\
 	PROTOTEXT_PUSH(type, a);\
 }
 
-#define PROTOTEXT_COM() {\
+#define PROTOTEXT_COM(type) {\
 	PROTOTEXT_POP(type, a);\
 	a = ~a;\
 	PROTOTEXT_PUSH(type, a);\
 }
 
 #define PROTOTEXT_JMP(loc) {\
+	PROTOTEXT_POP(uint64_t, c);\
 	goto loc;\
 }
 
-#define PROTOTEXT_JUMP_CONDITIONAL(condition)\
+#define PROTOTEXT_JUMP_CONDITIONAL(type, condition)\
+	PROTOTEXT_POP(uint64_t, c);\
 	PROTOTEXT_POP(type, a);\
 	PROTOTEXT_PUSH(type, a);\
 	if (condition){\
 		goto loc;\
 	}
 
-#define PROTOTEXT_JUMP_CONDITIONAL2(condition)\
+#define PROTOTEXT_JUMP_CONDITIONAL2(type, condition)\
+	PROTOTEXT_POP(uint64_t, c);\
 	PROTOTEXT_POP(type, a);\
 	PROTOTEXT_POP(type, b);\
 	PROTOTEXT_PUSH(type, b);\
@@ -115,15 +118,15 @@
 		goto loc;\
 	}
 
-#define PROTOTEXT_JTR(loc) { PROTOTEXT_JUMP_CONDITIONAL(a) }
-#define PROTOTEXT_JFA(loc) { PROTOTEXT_JUMP_CONDITIONAL(!a) }
+#define PROTOTEXT_JTR(type, loc) { PROTOTEXT_JUMP_CONDITIONAL(type, a) }
+#define PROTOTEXT_JFA(type, loc) { PROTOTEXT_JUMP_CONDITIONAL(type, !a) }
 
-#define PROTOTEXT_JEQ(loc) { PROTOTEXT_JUMP_CONDITIONAL2(a==b) }
-#define PROTOTEXT_JNE(loc) { PROTOTEXT_JUMP_CONDITIONAL2(a!=b) }
-#define PROTOTEXT_JLT(loc) { PROTOTEXT_JUMP_CONDITIONAL2(a<b) }
-#define PROTOTEXT_JLE(loc) { PROTOTEXT_JUMP_CONDITIONAL2(a<=b) }
-#define PROTOTEXT_JGT(loc) { PROTOTEXT_JUMP_CONDITIONAL2(a>b) }
-#define PROTOTEXT_JGE(loc) { PROTOTEXT_JUMP_CONDITIONAL2(a>=b) }
+#define PROTOTEXT_JEQ(type, loc) { PROTOTEXT_JUMP_CONDITIONAL2(type, a==b) }
+#define PROTOTEXT_JNE(type, loc) { PROTOTEXT_JUMP_CONDITIONAL2(type, a!=b) }
+#define PROTOTEXT_JLT(type, loc) { PROTOTEXT_JUMP_CONDITIONAL2(type, a<b) }
+#define PROTOTEXT_JLE(type, loc) { PROTOTEXT_JUMP_CONDITIONAL2(type, a<=b) }
+#define PROTOTEXT_JGT(type, loc) { PROTOTEXT_JUMP_CONDITIONAL2(type, a>b) }
+#define PROTOTEXT_JGE(type, loc) { PROTOTEXT_JUMP_CONDITIONAL2(type, a>=b) }
 
 void PROTOTEXT_ENTRYPOINT();
 

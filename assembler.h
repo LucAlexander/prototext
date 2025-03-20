@@ -11,6 +11,7 @@
 
 #define ARENA_SIZE 0x10000
 #define TOKEN_MAX 64
+#define MAX_PUSH_SIZE 128
 
 #define INITIAL_TARGET_SIZE 0x1000
 
