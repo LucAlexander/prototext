@@ -162,6 +162,7 @@ typedef struct target {
 	char* text;
 	char* header;
 	uint64_t size;
+	uint64_t header_size;
 	uint64_t cap;
 	uint64_t header_cap;
 } target;

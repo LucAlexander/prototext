@@ -79,7 +79,7 @@
 	PROTOTEXT_PUSH(type, a);\
 }
 
-#define PROTOTEXT_RET(type) {\
+#define PROTOTEXT_RET() {\
 	return;\
 }
 

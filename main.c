@@ -747,7 +747,7 @@ void show_instructions(assembler* const assm){
 }
 
 uint8_t
-generate_instructions(assembler* const assm){
+generate_instructions(assembler* const assm, const char* output){
 	assm->code.cap = INITIAL_TARGET_SIZE;
 	assm->code.header_cap = INITIAL_TARGET_SIZE;
 	assm->code.text = pool_request(assm->mem, sizeof(char)*assm->code.cap);
@@ -756,18 +756,22 @@ generate_instructions(assembler* const assm){
 	char entrypoint[] = "void PROTOTEXT_ENTRYPOINT(){\n";
 	uint64_t entry_len = sizeof(entrypoint)/sizeof(entrypoint[0]);
 	strncpy(assm->code.text, entrypoint, entry_len);
+	assm->code.size += entry_len;
+	strncpy(assm->code.header, "", 8);
+	assm->code.header_size = 0;
 	char* last_label = NULL;
 	uint64_t len = 0;
-	char* push = pool_request(assm->mem, sizeof(char)*MAX_PUSH_SIZE+1);
+	MODE mode = MODE_U8;
 	for (uint64_t i = 0;i<assm->parse.instruction_count;++i){
+		char push[MAX_PUSH_SIZE+1] = "";
 		push[0] = '\0';
 		while (i == next->instruction){
 			if (next->tag == SUBWORD_LABEL){
 				strncat(assm->code.text, next->label, next->size);
-				strcat(assm->code.text, ":");
+				strncat(assm->code.text, ":", 2);
 				assm->code.size += next->size+1;
 			}
-			else{
+			else {
 				char reset_stub[] = "}\nvoid\n";
 				char func_stub[] = "(){";
 				uint64_t reset_len = sizeof(reset_stub)/sizeof(reset_stub[0]);
@@ -776,11 +780,16 @@ generate_instructions(assembler* const assm){
 				strncat(assm->code.text, next->label, next->size);
 				strncat(assm->code.text, func_stub, func_len);
 				assm->code.size += reset_len + next->size + func_len;
+				strncat(assm->code.header, "void ", 6);
+				strncat(assm->code.header, next->label, next->size);
+				strncat(assm->code.header, "();\n", 5);
+				assm->code.header_size += next->size + 9;
 			}
 			next = next->next;
 		}
-		instruction* inst = assm->parse.instructions[i];
+		instruction* inst = &assm->parse.instructions[i];
 		if (inst->tag == PUSH_INST){
+			mode = inst->data.push.mode;
 			last_label = NULL;
 			if (inst->data.push.ref == 1){
 				last_label = inst->data.push.label;
@@ -788,19 +797,19 @@ generate_instructions(assembler* const assm){
 			switch (inst->data.push.mode){
 			case MODE_U8:
 			case MODE_I8:
-				snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_PUSH(uint8_t, %u);\n", inst->data.push.bytes);
+				snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_PUSH(uint8_t, %lu);\n", inst->data.push.bytes);
 				break;
 			case MODE_U16:
 			case MODE_I16:
-				snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_PUSH(uint16_t, %u);\n", inst->data.push.bytes);
+				snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_PUSH(uint16_t, %lu);\n", inst->data.push.bytes);
 				break;
 			case MODE_U32:
 			case MODE_I32:
-				snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_PUSH(uint32_t, %u);\n", inst->data.push.bytes);
+				snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_PUSH(uint32_t, %lu);\n", inst->data.push.bytes);
 				break;
 			case MODE_U64:
 			case MODE_I64:
-				snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_PUSH(uint64_t, %u);\n", inst->data.push.bytes);
+				snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_PUSH(uint64_t, %lu);\n", inst->data.push.bytes);
 				break;
 			}
 			len = strnlen(push, MAX_PUSH_SIZE);
@@ -810,98 +819,271 @@ generate_instructions(assembler* const assm){
 		}
 		if (inst->tag == EXEC_INST){
 			strncat(assm->code.text, inst->data.exec.label, inst->data.exec.size);
-			strcat(assm->code.text, "();\n");
+			strncat(assm->code.text, "();\n", 5);
 			assm->code.size += inst->data.exec.size + 4;
 			continue;
 		}
-		switch (inst->data.opcode){ // TODO
+		char argtype[] = "uint64_t";
+		if (mode == MODE_I8){ strncpy(argtype, "int8_t", 9); }
+		else if (mode == MODE_U8){ strncpy(argtype, "uint8_t", 9); }
+		else if (mode == MODE_I16){ strncpy(argtype, "int16_t", 9); }
+		else if (mode == MODE_U16){ strncpy(argtype, "uint16_t", 9); }
+		else if (mode == MODE_I32){ strncpy(argtype, "int32_t", 9); }
+		else if (mode == MODE_U32){ strncpy(argtype, "uint32_t", 9); }
+		else if (mode == MODE_I64){ strncpy(argtype, "int64_t", 9); }
+		switch (inst->data.opcode){
 		case WRITE_TOKEN:
+			char write_stub[] = "PROTOTEXT_WRITE();\n";
+			uint64_t write_len = sizeof(write_stub)/sizeof(write_stub[0]);
+			strncat(assm->code.text, write_stub, write_len);
+			assm->code.size += 19;
+			continue;
 		case ADD_TOKEN:
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_ADD(%s);\n", argtype);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
+			assm->code.size += len;
+			continue;
 		case SUB_TOKEN:
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_SUB(%s);\n", argtype);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
+			assm->code.size += len;
+			continue;
 		case MUL_TOKEN:
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_MUL(%s);\n", argtype);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
+			assm->code.size += len;
+			continue;
 		case DIV_TOKEN:
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_DIV(%s);\n", argtype);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
+			assm->code.size += len;
+			continue;
 		case MOD_TOKEN:
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_MOD(%s);\n", argtype);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
+			assm->code.size += len;
+			continue;
 		case SHR_TOKEN:
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_SHR(%s);\n", argtype);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
+			assm->code.size += len;
+			continue;
 		case SHL_TOKEN:
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_SHL(%s);\n", argtype);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
+			assm->code.size += len;
+			continue;
 		case DUP_TOKEN:
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_DUP(%s);\n", argtype);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
+			assm->code.size += len;
+			continue;
 		case POP_TOKEN:
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_POP_(%s);\n", argtype);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
+			assm->code.size += len;
+			continue;
 		case OVR_TOKEN:
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_OVR(%s);\n", argtype);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
+			assm->code.size += len;
+			continue;
 		case SWP_TOKEN:
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_SWP(%s);\n", argtype);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
+			assm->code.size += len;
+			continue;
 		case NIP_TOKEN:
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_NIP(%s);\n", argtype);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
+			assm->code.size += len;
+			continue;
 		case ROT_TOKEN:
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_ROT(%s);\n", argtype);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
+			assm->code.size += len;
+			continue;
 		case CUT_TOKEN:
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_CUT(%s);\n", argtype);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
+			assm->code.size += len;
+			continue;
 		case RET_TOKEN:
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_RET();\n");
+			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
+			assm->code.size += len;
+			continue;
 		case AND_TOKEN:
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_AND(%s);\n", argtype);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
+			assm->code.size += len;
+			continue;
 		case OR_TOKEN:
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_OR(%s);\n", argtype);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
+			assm->code.size += len;
+			continue;
 		case XOR_TOKEN:
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_XOR(%s);\n", argtype);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
+			assm->code.size += len;
+			continue;
 		case NOT_TOKEN:
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_NOT(%s);\n", argtype);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
+			assm->code.size += len;
+			continue;
 		case COM_TOKEN:
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_COM(%s);\n", argtype);
+			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
+			assm->code.size += len;
+			continue;
 		case JMP_TOKEN:
 			assert_local(last_label != NULL);
 			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JMP(%s);\n", last_label);
 			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
 			assm->code.size += len;
 			continue;
-		case JEQ_TOKEN: // TODO these all need types
+		case JEQ_TOKEN:
 			assert_local(last_label != NULL);
-			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JEQ(%s);\n", last_label);
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JEQ(%s, %s);\n", argtype, last_label);
 			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
 			assm->code.size += len;
 			continue;
 		case JTR_TOKEN:
 			assert_local(last_label != NULL);
-			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JTR(%s);\n", last_label);
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JTR(%s, %s);\n", argtype, last_label);
 			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
 			assm->code.size += len;
 			continue;
 		case JFA_TOKEN:
 			assert_local(last_label != NULL);
-			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JFA(%s);\n", last_label);
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JFA(%s, %s);\n", argtype, last_label);
 			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
 			assm->code.size += len;
 			continue;
 		case JNE_TOKEN:
 			assert_local(last_label != NULL);
-			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JNE(%s);\n", last_label);
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JNE(%s, %s);\n", argtype, last_label);
 			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
 			assm->code.size += len;
 			continue;
 		case JLT_TOKEN:
 			assert_local(last_label != NULL);
-			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JLT(%s);\n", last_label);
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JLT(%s, %s);\n", argtype, last_label);
 			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
 			assm->code.size += len;
 			continue;
 		case JLE_TOKEN:
 			assert_local(last_label != NULL);
-			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JLE(%s);\n", last_label);
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JLE(%s, %s);\n", argtype, last_label);
 			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
 			assm->code.size += len;
 			continue;
 		case JGT_TOKEN:
 			assert_local(last_label != NULL);
-			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JGT(%s);\n", last_label);
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JGT(%s, %s);\n", argtype, last_label);
 			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
 			assm->code.size += len;
 			continue;
 		case JGE_TOKEN:
 			assert_local(last_label != NULL);
-			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JGE(%s);\n", last_label);
+			snprintf(push, MAX_PUSH_SIZE, "PROTOTEXT_JGE(%s, %s);\n", argtype, last_label);
 			len = strnlen(push, MAX_PUSH_SIZE);
+			strncat(assm->code.text, push, len);
 			assm->code.size += len;
 			continue;
 		default:
 			assert_local(0, "Encountered non opcode tag in opcode instruction\n");
 		}
 	}
-	strncat(assm->code.text, "\n}\n", 3);
-	assm->code.size += 3;
-	//TODO add header
+	strncat(assm->code.text, "\n}\n", 4);
+	assm->code.size += 4;
+	{
+		char output_source[MAX_PUSH_SIZE] = "";
+		snprintf(output_source, MAX_PUSH_SIZE, "%s.c", output);
+		FILE* runtime = fopen("runtime.c", "r");
+		assert_local(runtime != NULL, "Unable to access runtime");
+		pool outmem = pool_alloc(ARENA_SIZE, POOL_STATIC);
+		if (outmem.buffer == NULL){
+			fclose(runtime);
+			assert_local(0, "Unable to allocate output buffer");
+		}
+		uint64_t read_bytes = fread(outmem.buffer, sizeof(uint8_t), outmem.left, runtime);
+		fclose(runtime);
+		if (read_bytes == outmem.left){
+			pool_dealloc(&outmem);
+			assert_local(0, "Runtime file exceeded buffer maximum");
+		}
+		FILE* outfile = fopen(output_source, "w");
+		assert_local(outfile != NULL, "Unable to create output file for writing");
+		char* cast = outmem.buffer;
+		cast[read_bytes] = '\0';
+		assm->code.text[assm->code.size] = '\0';
+		fprintf(outfile, (char*)outmem.buffer);
+		fprintf(outfile, assm->code.text);
+		fclose(outfile);
+		pool_dealloc(&outmem);
+	}
+	{
+		char output_header[MAX_PUSH_SIZE] = "";
+		snprintf(output_header, MAX_PUSH_SIZE, "%s.h", output);
+		FILE* runtime = fopen("runtime.h", "r");
+		assert_local(runtime != NULL, "Unable to access runtime");
+		pool outmem = pool_alloc(ARENA_SIZE, POOL_STATIC);
+		if (outmem.buffer == NULL){
+			fclose(runtime);
+			assert_local(0, "Unable to allocate output buffer");
+		}
+		uint64_t read_bytes = fread(outmem.buffer, sizeof(uint8_t), outmem.left, runtime);
+		fclose(runtime);
+		if (read_bytes == outmem.left){
+			pool_dealloc(&outmem);
+			assert_local(0, "Runtime file exceeded buffer maximum");
+		}
+		FILE* outfile = fopen(output_header, "w");
+		assert_local(outfile != NULL, "Unable to create output header for writing");
+		char* cast = outmem.buffer;
+		cast[read_bytes] = '\0';
+		assm->code.header[assm->code.header_size] = '\0';
+		fprintf(outfile, (char*)outmem.buffer);
+		fprintf(outfile, assm->code.header);
+		fclose(outfile);
+		pool_dealloc(&outmem);
+	}
 	return 0;
 }
 
 uint8_t
-assemble_cstr(assembler* const assm){
+assemble_cstr(assembler* const assm, const char* output){
 	lex_cstr(assm);
 	assert_prop();
 #ifdef DEBUG
@@ -914,7 +1096,7 @@ assemble_cstr(assembler* const assm){
 #endif
 	unresolved_labels(assm);
 	assert_prop();
-	generate_instructions(assm);
+	generate_instructions(assm, output);
 	return 0;
 }
 
@@ -1008,7 +1190,9 @@ assemble_file(const char* input, const char* output){
 	target code = {
 		.text = NULL,
 		.size = 0,
-		.cap = 0
+		.header_size = 0,
+		.cap = 0,
+		.header_cap = 0
 	};
 	assembler assm = {
 		.parse = parse,
@@ -1020,7 +1204,7 @@ assemble_file(const char* input, const char* output){
 		.err = pool_request(&mem, sizeof(char)*(ERROR_BUFFER+1))
 	};
 	*assm.err = '\0';
-	assemble_cstr(&assm);
+	assemble_cstr(&assm, output);
 	if (assm.err != 0){
 		fprintf(stderr, "%s\n", assm.err);
 	}
