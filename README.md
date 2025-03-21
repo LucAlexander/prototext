@@ -19,7 +19,7 @@ This is a prototype for a forth-like compiled language. It was written in a week
   :----ALU-------------| start. (jump to start)     |
   | and  | add  | shr  |                            |
   | or   | sub  | shl  | start: "hello world        |
-  | xor  | mul  |      | " loop, 0xb 1 write        |
+  | xor  | mul  |      | " loop, u64 0xb u8 1 write |
   | not  | div  |      | ;loop jmp ret.             |
   | com  | mod  |      |                            |
   :----stdout----------:----------------------------:
