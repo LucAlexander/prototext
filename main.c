@@ -226,13 +226,15 @@ lex_cstr(assembler* const assm){
 			char character = assm->input.text[assm->input.i];
 			assm->input.i += 1;
 			c = assm->input.text[assm->input.i];
+			if (c == '\n'){
+				line += 1;
+			}
 			if (character == '\\'){
 				switch (c){
 				case 'a': c = '\a'; break;
 				case 'b': c = '\b'; break;
 				case 'e': c = '\033'; break;
 				case 'f': c = '\f'; break;
-				case 'n': c = '\n'; break;
 				case 'r': c = '\r'; break;
 				case 't': c = '\t'; break;
 				case 'v': c = '\v'; break;
@@ -240,6 +242,7 @@ lex_cstr(assembler* const assm){
 				case '\'': c = '\''; break;
 				case '"': c = '"'; break;
 				case '?': c = '\?'; break;
+				case 'n': c = '\n'; break;
 				case '\n': line += 1; break;
 				}
 				assm->input.i += 1;
@@ -438,7 +441,10 @@ void pointer_thunk_request(pointer_thunk_map* map, char* const name, uint64_t* p
 		res->tag = THUNK_WAITING;
 		res->next = NULL;
 		res->data.waiting_pointer = pointer;
-		pointer_thunk_map_insert(map, name, res);
+		uint64_t len = strlen(name);
+		char* namecopy = pool_request(map->mem, len);
+		strncpy(namecopy, name, len);
+		pointer_thunk_map_insert(map, namecopy, res);
 		return;
 	}
 	if (res->tag == THUNK_RESOLVED){
@@ -460,7 +466,10 @@ void pointer_thunk_fulfill(pointer_thunk_map* map, char* const name, uint64_t po
 		res->tag = THUNK_RESOLVED;
 		res->next = NULL;
 		res->data.resolved_location = pointer;
-		pointer_thunk_map_insert(map, name, res);
+		uint64_t len = strlen(name);
+		char* namecopy = pool_request(map->mem, len);
+		strncpy(namecopy, name, len);
+		pointer_thunk_map_insert(map, namecopy, res);
 		return;
 	}
 	if (res->tag == THUNK_RESOLVED){
@@ -472,7 +481,6 @@ void pointer_thunk_fulfill(pointer_thunk_map* map, char* const name, uint64_t po
 		res->tag = THUNK_RESOLVED;
 		res = res->next;
 	}
-	res->tag = THUNK_RESOLVED;
 }
 
 uint8_t
@@ -624,6 +632,30 @@ parse_tokens(assembler* const assm){
 			}
 			assm->parse.instruction_count += 1;
 			continue;
+		case U8_TOKEN:
+			mode = MODE_U8;
+			continue;
+		case I8_TOKEN:
+			mode = MODE_I8;
+			continue;
+		case U16_TOKEN:
+			mode = MODE_U16;
+			continue;
+		case I16_TOKEN:
+			mode = MODE_I16;
+			continue;
+		case U32_TOKEN:
+			mode = MODE_U32;
+			continue;
+		case I32_TOKEN:
+			mode = MODE_I32;
+			continue;
+		case U64_TOKEN:
+			mode = MODE_U64;
+			continue;
+		case I64_TOKEN:
+			mode = MODE_I64;
+			continue;
 		case RET_TOKEN:
 			broke = 1;
 		case WRITE_TOKEN:
@@ -633,38 +665,6 @@ parse_tokens(assembler* const assm){
 		case NIP_TOKEN: case ROT_TOKEN: case CUT_TOKEN:
 		case AND_TOKEN: case OR_TOKEN: case XOR_TOKEN: case NOT_TOKEN:
 		case COM_TOKEN:
-		case U8_TOKEN:
-			mode = MODE_U8;
-			assm->parse.instruction_count += 1;
-			continue;
-		case I8_TOKEN:
-			mode = MODE_I8;
-			assm->parse.instruction_count += 1;
-			continue;
-		case U16_TOKEN:
-			mode = MODE_U16;
-			assm->parse.instruction_count += 1;
-			continue;
-		case I16_TOKEN:
-			mode = MODE_I16;
-			assm->parse.instruction_count += 1;
-			continue;
-		case U32_TOKEN:
-			mode = MODE_U32;
-			assm->parse.instruction_count += 1;
-			continue;
-		case I32_TOKEN:
-			mode = MODE_I32;
-			assm->parse.instruction_count += 1;
-			continue;
-		case U64_TOKEN:
-			mode = MODE_U64;
-			assm->parse.instruction_count += 1;
-			continue;
-		case I64_TOKEN:
-			mode = MODE_I64;
-			assm->parse.instruction_count += 1;
-			continue;
 		case JMP_TOKEN: case JEQ_TOKEN: case JTR_TOKEN: case JFA_TOKEN:
 		case JNE_TOKEN: case JLT_TOKEN: case JLE_TOKEN: case JGT_TOKEN:
 		case JGE_TOKEN:
@@ -677,9 +677,9 @@ parse_tokens(assembler* const assm){
 			assm->parse.instruction_count += 1;
 			continue;
 		case STRING_TOKEN:
-			for (uint64_t c = 0;c<t.str.size;++c){
+			for (uint64_t c = t.str.size;c>0;--c){
 				inst->tag = PUSH_INST;
-				inst->data.push.bytes = t.str.text[c];
+				inst->data.push.bytes = t.str.text[c-1];
 				inst->data.push.mode = MODE_I8;
 				inst->data.push.ref = 0;
 				inst->data.push.label = NULL;
@@ -699,13 +699,17 @@ parse_tokens(assembler* const assm){
 			inst->tag = PUSH_INST;
 			inst->data.push.bytes = t.val;
 			if (t.val < 0xFF){
-				inst->data.push.mode = MODE_U8;
+				inst->data.push.mode = mode;
 			}
 			else if (t.val < 0xFFFF){
-				inst->data.push.mode = MODE_U16;
+				if (mode < MODE_U16){
+					inst->data.push.mode = MODE_U16;
+				}
 			}
 			else if (t.val < 0xFFFFFFFF){
-				inst->data.push.mode = MODE_U32;
+				if (mode < MODE_U32){
+					inst->data.push.mode = MODE_U32;
+				}
 			}
 			else{
 				inst->data.push.mode = MODE_U64;
@@ -1030,9 +1034,11 @@ generate_instructions(assembler* const assm, const char* output){
 	}
 	strncat(assm->code.text, "\n}\n", 4);
 	assm->code.size += 4;
+	char output_source[MAX_PUSH_SIZE] = "";
+	snprintf(output_source, MAX_PUSH_SIZE, "%s.c", output);
+	char output_header[MAX_PUSH_SIZE] = "";
+	snprintf(output_header, MAX_PUSH_SIZE, "%s.h", output);
 	{
-		char output_source[MAX_PUSH_SIZE] = "";
-		snprintf(output_source, MAX_PUSH_SIZE, "%s.c", output);
 		FILE* runtime = fopen("runtime.c", "r");
 		assert_local(runtime != NULL, "Unable to access runtime");
 		pool outmem = pool_alloc(ARENA_SIZE, POOL_STATIC);
@@ -1051,14 +1057,13 @@ generate_instructions(assembler* const assm, const char* output){
 		char* cast = outmem.buffer;
 		cast[read_bytes] = '\0';
 		assm->code.text[assm->code.size] = '\0';
+		fprintf(outfile, "#include \"%s\"\n", output_header);
 		fprintf(outfile, (char*)outmem.buffer);
 		fprintf(outfile, assm->code.text);
 		fclose(outfile);
 		pool_dealloc(&outmem);
 	}
 	{
-		char output_header[MAX_PUSH_SIZE] = "";
-		snprintf(output_header, MAX_PUSH_SIZE, "%s.h", output);
 		FILE* runtime = fopen("runtime.h", "r");
 		assert_local(runtime != NULL, "Unable to access runtime");
 		pool outmem = pool_alloc(ARENA_SIZE, POOL_STATIC);

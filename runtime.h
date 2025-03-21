@@ -2,6 +2,7 @@
 #define PROTOTEXT_RUNTIME_H
 
 #include <inttypes.h>
+#include <stdio.h>
 
 #define PROTOTEXT_STACK_SIZE 0x1000000
 
@@ -11,15 +12,16 @@
 #define PROTOTEXT_WRITE() {\
 	PROTOTEXT_POP(uint8_t, file);\
 	PROTOTEXT_POP(uint64_t, len);\
-	switch (file){\
+	FILE* f = stdout;\
+	switch (file) {\
 	case 0:\
-		fnprintf(stdin, len, (char*)(&stack[sp-len]));\
-	case 1:\
-		fnprintf(stdout, len, (char*)(&stack[sp-len]));\
+		f = stdin;\
 	case 2:\
-		fnprintf(stderr, len, (char*)(&stack[sp-len]));\
-	default:\
-		fnprintf(file, len, (char*)(&stack[sp-len]));\
+		f = stderr;\
+	}\
+	char* string = (char*)(&stack[sp]);\
+	for (uint64_t i = 0;i<len;++i){\
+		fputc(string[i], f);\
 	}\
 }
 
@@ -139,4 +141,3 @@
 
 void PROTOTEXT_ENTRYPOINT();
 
-//ensure compilation include #endif
